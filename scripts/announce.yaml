@@ -1,0 +1,158 @@
+blueprint:
+  name: Announce Message on Media Players
+  author: Zeid Derhally
+  description: Announce a message on selected media players at a specified volume.
+  domain: script
+  source_url: https://github.com/derhally/ha-blueprints/blob/main/scripts/announce.yaml
+  input:
+    required_inputs:
+      name: Required inputs
+      input:
+        media_players:
+          name: Media Players
+          description: A list of media player entities to announce the message on.
+          selector:
+            entity:
+              filter:
+                domain: media_player
+              multiple: true
+        message:
+          name: Message
+          description: The message to announce.
+          selector:
+            text:
+              multiline: true
+              multiple: false
+        volume:
+          name: Volume
+          description: The volume at which to announce the message (0-100).
+          selector:
+            number:
+              min: 0.0
+              max: 100.0
+              step: 5.0
+              mode: slider
+              unit_of_measurement: "%"
+        tts_engine:
+          name: TTS Engine
+          description: The text-to-speech engine to use.
+          selector:
+            select:
+              options:
+                - google_translate
+                - cloud_say
+              custom_value: false
+              multiple: false
+
+fields:
+  f_volume:
+    name: Volume
+    description: The volume at which to announce the message (0-100).
+    required: false
+    selector:
+      number:
+        min: 0.0
+        max: 100.0
+        step: 5.0
+        mode: slider
+        unit_of_measurement: "%"
+  f_message:
+    name: Message
+    required: false
+    selector:
+      text:
+        multiline: true
+        type: text
+  f_media_players:
+    name: Media Players
+    required: false
+    selector:
+      entity:
+        filter:
+          domain: media_player
+        multiple: true
+  f_tts_engine:
+    name: TTS Engine
+    description: The text-to-speech engine to use.
+    selector:
+      select:
+        options:
+          - google_translate
+          - cloud_say
+        custom_value: false
+        multiple: false
+variables:
+  volume: !input volume
+  message: !input message
+  tts_engine: !input tts_engine
+  media_players: !input media_players
+  comp_volume: >
+    {% if f_volume | default("") %}
+      {{ f_volume / 100 }}
+    {% else %}
+      {{ volume / 100 }}
+    {% endif %}
+  comp_message: >
+    {% if f_message | default("") %}
+      {{ f_message }}
+    {% else %}
+      {{ message }}
+    {% endif %}
+  comp_media_players: >
+    {% if f_media_players | default("") %}
+      {{ f_media_players }}
+    {% else %}
+      {{ media_players }}
+    {% endif %}
+  comp_tts_engine: >
+    {% if f_tts_engine | default("") %}
+      {{ f_tts_engine }}
+    {% else %}
+      {{ tts_engine }}
+    {% endif %}
+
+sequence:
+  - parallel:
+      - repeat:
+          for_each: "{{ comp_media_players | list }}"
+          sequence:
+            - action: media_player.turn_on
+              continue_on_error: true
+              target:
+                entity_id: "{{ repeat.item }}"
+            - variables:
+                orig_volume: >-
+                  {{ state_attr( repeat.item, 'volume_level') | round(2) }}
+            - action: media_player.volume_set
+              continue_on_error: true
+              target:
+                entity_id: "{{ repeat.item }}"
+              data:
+                volume_level: "{{ comp_volume }}"
+            - wait_template: >-
+                {{ state_attr(repeat.item, 'volume_level') | round(2) == comp_volume }}
+              timeout: "10"
+            - choose:
+                - conditions: "{{ comp_tts_engine == 'google_translate' }}"
+                  sequence:
+                    - action: tts.google_translate_say
+                      data:
+                        entity_id: "{{ repeat.item }}"
+                        message: "{{ comp_message }}"
+                - conditions: "{{ comp_tts_engine == 'cloud_say' }}"
+                  sequence:
+                    - action: tts.cloud_say
+                      data:
+                        cache: true
+                        entity_id: "{{ repeat.item }}"
+                        message: "{{ comp_message }}"
+            - wait_template: "{{ is_state(repeat.item,'playing') }}"
+            - wait_template: "{{ is_state(repeat.item,'idle') }}"
+            - action: media_player.volume_set
+              continue_on_error: true
+              target:
+                entity_id: "{{ repeat.item }}"
+              data:
+                volume_level: "{{ orig_volume }}"
+mode: parallel
+icon: mdi:bullhorn
