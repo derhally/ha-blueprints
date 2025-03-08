@@ -1,0 +1,72 @@
+blueprint:
+  name: Announce Message on Media Players
+  author: Zeid Derhally
+  description: Announce a message on selected media players at a specified volume.
+  domain: script
+  input:
+    media_players:
+      name: Media Players
+      description: A list of media player entities to announce the message on.
+      selector:
+        entity:
+          domain: media_player
+          multiple: true
+    message:
+      name: Message
+      description: The message to announce.
+      selector:
+        text:
+          multiline: true
+    volume:
+      name: Volume
+      description: The volume at which to announce the message (0-1).
+      selector:
+        number:
+          min: 0
+          max: 1
+          step: 0.01
+    tts_engine:
+      name: TTS Engine
+      description: The text-to-speech engine to use.
+      selector:
+        select:
+          options:
+            - google_translate
+            - cloud_say
+  source_url: https://github.com/derhally/ha-blueprints/scripts/announce.yaml
+
+mode: parallel
+max: 10
+
+sequence:
+  - repeat:
+      count: '{{ media_players | count }}'
+      sequence:
+        - service: media_player.get_volume
+          data:
+            entity_id: '{{ media_players[repeat.index-1] }}'
+          response_variable: current_volume
+        - choose:
+            - conditions: "{{ tts_engine == 'google_translate' }}"
+              sequence:
+                - service: tts.google_translate_say
+                  data:
+                    entity_id: '{{ media_players[repeat.index-1] }}'
+                    message: '{{ message }}'
+            - conditions: "{{ tts_engine == 'cloud_say' }}"
+              sequence:
+                - service: tts.cloud_say
+                  data:
+                    entity_id: '{{ media_players[repeat.index-1] }}'
+                    message: '{{ message }}'
+          default:
+            - service: tts.google_translate_say
+              data:
+                entity_id: '{{ media_players[repeat.index-1] }}'
+                message: '{{ message }}'
+        - service: media_player.volume_set
+          data:
+            entity_id: '{{ media_players[repeat.index-1] }}'
+            volume_level: "{{ current_volume.volume_level }}"
+        - delay:
+            seconds: 2
